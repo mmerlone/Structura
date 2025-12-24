@@ -6,7 +6,11 @@ import { getCountryByCode } from '@/lib/utils/location-utils'
 const logger = buildLogger('location-actions')
 
 // In-memory cache for geolocation results
-// In production, consider using Redis or Vercel KV for persistent caching
+// Note: This is a simple in-memory cache suitable for single-instance deployments.
+// In production with multiple serverless instances, consider using:
+// - Redis for distributed caching
+// - Vercel KV for Vercel deployments
+// - Or accept potential cache misses across instances (still reduces API calls)
 const geoLocationCache = new Map<string, { country: string; timestamp: number }>()
 const CACHE_TTL = 24 * 60 * 60 * 1000 // 24 hours
 const MAX_CACHE_SIZE = 1000 // Prevent unbounded memory growth
@@ -32,11 +36,15 @@ function getCachedCountry(cacheKey: string): string | null {
  * Store country in cache with LRU eviction
  */
 function cacheCountry(cacheKey: string, country: string): void {
-  // Simple LRU: if cache is full, remove oldest entry
+  // Improved LRU: if cache is full, remove oldest 10% of entries
   if (geoLocationCache.size >= MAX_CACHE_SIZE) {
-    const firstKey = geoLocationCache.keys().next().value
-    if (firstKey) {
-      geoLocationCache.delete(firstKey)
+    const entriesToRemove = Math.max(1, Math.floor(MAX_CACHE_SIZE * 0.1))
+    const sortedEntries = Array.from(geoLocationCache.entries()).sort(
+      ([, a], [, b]) => a.timestamp - b.timestamp
+    )
+    
+    for (let i = 0; i < entriesToRemove && i < sortedEntries.length; i++) {
+      geoLocationCache.delete(sortedEntries[i][0])
     }
   }
   

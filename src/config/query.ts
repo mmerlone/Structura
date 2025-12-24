@@ -45,8 +45,12 @@ export const QUERY_CONFIG = {
 
     /**
      * HTTP status codes that should not be retried
+     * 400: Bad Request - client error, won't succeed on retry
+     * 401: Unauthorized - needs authentication
+     * 403: Forbidden - needs authorization
+     * 404: Not Found - resource doesn't exist
      */
-    nonRetryableStatusCodes: [400, 401, 403, 404, 422],
+    nonRetryableStatusCodes: [400, 401, 403, 404],
   },
 
   /**

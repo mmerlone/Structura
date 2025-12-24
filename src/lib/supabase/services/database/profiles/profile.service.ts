@@ -108,7 +108,11 @@ export abstract class ProfileService extends BaseService {
       }
 
       const fileExt = file.name.split('.').pop()
-      const fileName = validation.sanitizedName || `${userId}-${Date.now()}.${fileExt}`
+      // Use crypto.randomUUID() to prevent filename collisions
+      const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID 
+        ? crypto.randomUUID() 
+        : `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+      const fileName = validation.sanitizedName || `${userId}-${uniqueId}.${fileExt}`
       const filePath = `${userId}/${fileName}`
 
       // Upload file to storage

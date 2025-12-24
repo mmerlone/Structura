@@ -11,8 +11,6 @@ import { ProfileClientService } from '@/lib/supabase/services/database/profiles/
 import type { Profile } from '@/types/database'
 import { ThemePreference } from '@/types/theme.types'
 
-const PROFILE_QUERY_KEY = 'profile'
-
 /**
  * User profile management hook with React Query integration.
  *
@@ -150,7 +148,7 @@ export function useProfile(userId?: string, initialData?: Profile | null) {
     Partial<Profile>,
     MutationContext
   >({
-    mutationKey: [PROFILE_QUERY_KEY, userId],
+    mutationKey: [...QUERY_KEYS.profile(userId), 'update'],
     mutationFn: async (updates: Partial<Profile>) => {
       if (userId === null || userId === undefined) {
         throw new BusinessError({
@@ -215,7 +213,7 @@ export function useProfile(userId?: string, initialData?: Profile | null) {
   })
 
   const { mutateAsync: uploadAvatar, isPending: isUploadingAvatar } = useMutation<string, Error, File, undefined>({
-    mutationKey: [PROFILE_QUERY_KEY, userId, 'avatar'],
+    mutationKey: [...QUERY_KEYS.profile(userId), 'avatar'],
     mutationFn: async (file: File) => {
       if (userId === null || userId === undefined) {
         throw new BusinessError({
