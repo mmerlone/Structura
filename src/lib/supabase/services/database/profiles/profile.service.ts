@@ -1,7 +1,7 @@
 import { BaseService } from '../../base.service'
 import { convertAppProfileForInsert, convertAppProfileForUpdate, convertDbProfile } from '@/lib/utils/profile-utils'
 import { validateAndSanitizeFile } from '@/lib/security/sanitize'
-import { getOptimizedImageUrl, AVATAR_SIZES } from '@/lib/utils/image-utils'
+import { getOptimizedImageUrl, parseSupabaseStorageUrl, AVATAR_SIZES } from '@/lib/utils/image-utils'
 import type { Profile, ProfileUpdate } from '@/types/profile.types'
 
 const PROFILE_BUCKET = 'avatars'
@@ -167,10 +167,10 @@ export abstract class ProfileService extends BaseService {
   ): { thumbnail: string; small: string; medium: string; large: string } | null {
     if (!avatarUrl) return null
 
-    // Extract the file path from the URL
-    // Supabase URLs follow the pattern: https://{project}.supabase.co/storage/v1/object/public/{bucket}/{path}
-    const urlParts = avatarUrl.split('/storage/v1/object/public/')
-    if (urlParts.length !== 2) {
+    // Use shared utility to parse the URL
+    const pathInfo = parseSupabaseStorageUrl(avatarUrl)
+    
+    if (!pathInfo) {
       // URL doesn't match expected pattern, return as-is for all sizes
       return {
         thumbnail: avatarUrl,
@@ -180,19 +180,13 @@ export abstract class ProfileService extends BaseService {
       }
     }
 
-    const [, bucketAndPath] = urlParts
-    const pathParts = bucketAndPath.split('/')
-    const bucket = pathParts[0]
-    const filePath = pathParts.slice(1).join('/')
-
-    // Remove any existing transform parameters
-    const cleanFilePath = filePath.split('?')[0]
+    const { bucket, filePath } = pathInfo
 
     return {
-      thumbnail: getOptimizedImageUrl(this.client, bucket, cleanFilePath, AVATAR_SIZES.thumbnail),
-      small: getOptimizedImageUrl(this.client, bucket, cleanFilePath, AVATAR_SIZES.small),
-      medium: getOptimizedImageUrl(this.client, bucket, cleanFilePath, AVATAR_SIZES.medium),
-      large: getOptimizedImageUrl(this.client, bucket, cleanFilePath, AVATAR_SIZES.large),
+      thumbnail: getOptimizedImageUrl(this.client, bucket, filePath, AVATAR_SIZES.thumbnail),
+      small: getOptimizedImageUrl(this.client, bucket, filePath, AVATAR_SIZES.small),
+      medium: getOptimizedImageUrl(this.client, bucket, filePath, AVATAR_SIZES.medium),
+      large: getOptimizedImageUrl(this.client, bucket, filePath, AVATAR_SIZES.large),
     }
   }
 }

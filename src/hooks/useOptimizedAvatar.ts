@@ -7,30 +7,14 @@
 
 import { useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { getOptimizedImageUrl, AVATAR_SIZES, type ImageTransformOptions } from '@/lib/utils/image-utils'
+import {
+  getOptimizedImageUrl,
+  parseSupabaseStorageUrl,
+  AVATAR_SIZES,
+  type ImageTransformOptions,
+} from '@/lib/utils/image-utils'
 
 const PROFILE_BUCKET = 'avatars'
-
-/**
- * Extract file path from Supabase public URL
- */
-function extractFilePathFromUrl(url: string | null): { bucket: string; filePath: string } | null {
-  if (!url) return null
-
-  // Supabase URLs follow the pattern: https://{project}.supabase.co/storage/v1/object/public/{bucket}/{path}
-  const urlParts = url.split('/storage/v1/object/public/')
-  if (urlParts.length !== 2) return null
-
-  const [, bucketAndPath] = urlParts
-  const pathParts = bucketAndPath.split('/')
-  const bucket = pathParts[0] || PROFILE_BUCKET
-  const filePath = pathParts.slice(1).join('/')
-
-  // Remove any existing transform parameters
-  const cleanFilePath = filePath.split('?')[0]
-
-  return { bucket, filePath: cleanFilePath }
-}
 
 /**
  * Hook to get optimized avatar URLs for different sizes
@@ -57,7 +41,7 @@ export function useOptimizedAvatar(avatarUrl: string | null) {
   const client = createClient()
 
   return useMemo(() => {
-    const pathInfo = extractFilePathFromUrl(avatarUrl)
+    const pathInfo = parseSupabaseStorageUrl(avatarUrl)
 
     if (!pathInfo) {
       // Return original URL for all sizes if we can't extract the path
@@ -79,7 +63,8 @@ export function useOptimizedAvatar(avatarUrl: string | null) {
       large: getOptimizedImageUrl(client, bucket, filePath, AVATAR_SIZES.large),
       original: avatarUrl || '',
     }
-  }, [avatarUrl, client])
+    // Note: client is intentionally excluded from deps as it's a stable instance
+  }, [avatarUrl])
 }
 
 /**
@@ -109,7 +94,7 @@ export function useOptimizedAvatarUrl(
   const client = createClient()
 
   return useMemo(() => {
-    const pathInfo = extractFilePathFromUrl(avatarUrl)
+    const pathInfo = parseSupabaseStorageUrl(avatarUrl)
 
     if (!pathInfo) {
       return avatarUrl || ''
@@ -117,5 +102,6 @@ export function useOptimizedAvatarUrl(
 
     const { bucket, filePath } = pathInfo
     return getOptimizedImageUrl(client, bucket, filePath, options)
-  }, [avatarUrl, options, client])
+    // Note: client is intentionally excluded from deps as it's a stable instance
+  }, [avatarUrl, options])
 }

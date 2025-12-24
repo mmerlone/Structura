@@ -164,3 +164,38 @@ export function getOptimalAvatarSize(containerSize: number): ImageTransformOptio
   if (containerSize <= 200) return AVATAR_SIZES.medium
   return AVATAR_SIZES.large
 }
+
+/**
+ * Extract bucket and file path from Supabase Storage public URL
+ * 
+ * Supabase Storage URLs follow the pattern:
+ * https://{project}.supabase.co/storage/v1/object/public/{bucket}/{path}
+ * 
+ * @param url - Supabase Storage public URL
+ * @returns Object with bucket and filePath, or null if URL doesn't match pattern
+ * 
+ * @example
+ * ```typescript
+ * const info = parseSupabaseStorageUrl('https://proj.supabase.co/storage/v1/object/public/avatars/user-123/avatar.jpg')
+ * console.log(info) // { bucket: 'avatars', filePath: 'user-123/avatar.jpg' }
+ * ```
+ */
+export function parseSupabaseStorageUrl(url: string | null): { bucket: string; filePath: string } | null {
+  if (!url) return null
+
+  // Supabase URLs follow the pattern: https://{project}.supabase.co/storage/v1/object/public/{bucket}/{path}
+  const urlParts = url.split('/storage/v1/object/public/')
+  if (urlParts.length !== 2) return null
+
+  const [, bucketAndPath] = urlParts
+  const pathParts = bucketAndPath.split('/')
+  const bucket = pathParts[0]
+  const filePath = pathParts.slice(1).join('/')
+
+  // Remove any existing transform parameters
+  const cleanFilePath = filePath.split('?')[0]
+
+  if (!bucket || !cleanFilePath) return null
+
+  return { bucket, filePath: cleanFilePath }
+}
