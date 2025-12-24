@@ -1,6 +1,7 @@
 import { BaseService } from '../../base.service'
 import { convertAppProfileForInsert, convertAppProfileForUpdate, convertDbProfile } from '@/lib/utils/profile-utils'
 import { validateAndSanitizeFile } from '@/lib/security/sanitize'
+import { getOptimizedImageUrl, AVATAR_SIZES } from '@/lib/utils/image-utils'
 import type { Profile, ProfileUpdate } from '@/types/profile.types'
 
 const PROFILE_BUCKET = 'avatars'
@@ -122,25 +123,76 @@ export abstract class ProfileService extends BaseService {
 
       if (uploadError) throw uploadError
 
-      const {
-        data: { publicUrl },
-      } = this.client.storage.from(PROFILE_BUCKET).getPublicUrl(filePath)
+      // Generate optimized image URL using Supabase Transform
+      // This uses the medium size (200x200) as the primary avatar URL
+      const optimizedUrl = getOptimizedImageUrl(this.client, PROFILE_BUCKET, filePath, AVATAR_SIZES.medium)
 
-      // Transaction-like behavior: Update profile with new avatar URL
+      // Transaction-like behavior: Update profile with optimized avatar URL
       // If this fails, the uploaded file remains in storage (orphaned)
       // Consider implementing cleanup job for orphaned files
       try {
-        await this.updateProfile(userId, { avatar_url: publicUrl })
+        await this.updateProfile(userId, { avatar_url: optimizedUrl })
       } catch (updateError) {
         // Attempt to clean up uploaded file on profile update failure
         await this.client.storage.from(PROFILE_BUCKET).remove([filePath])
         throw updateError
       }
 
-      this.logger.info({ userId, publicUrl }, 'Avatar uploaded successfully')
-      return publicUrl
+      this.logger.info({ userId, optimizedUrl, filePath }, 'Avatar uploaded successfully with optimization')
+      return optimizedUrl
     } catch (error) {
       return this.handleError(error, 'upload avatar', { userId })
+    }
+  }
+
+  /**
+   * Get optimized avatar URLs for different sizes
+   * Useful for responsive images or different UI contexts
+   * 
+   * @param avatarUrl - The stored avatar URL (can be optimized or base URL)
+   * @returns Object with URLs for different sizes, or null if no avatar
+   * 
+   * @example
+   * ```typescript
+   * const urls = await service.getOptimizedAvatarUrls(profile.avatar_url)
+   * if (urls) {
+   *   console.log(urls.thumbnail) // 50x50
+   *   console.log(urls.medium)    // 200x200
+   *   console.log(urls.large)     // 400x400
+   * }
+   * ```
+   */
+  getOptimizedAvatarUrls(
+    avatarUrl: string | null
+  ): { thumbnail: string; small: string; medium: string; large: string } | null {
+    if (!avatarUrl) return null
+
+    // Extract the file path from the URL
+    // Supabase URLs follow the pattern: https://{project}.supabase.co/storage/v1/object/public/{bucket}/{path}
+    const urlParts = avatarUrl.split('/storage/v1/object/public/')
+    if (urlParts.length !== 2) {
+      // URL doesn't match expected pattern, return as-is for all sizes
+      return {
+        thumbnail: avatarUrl,
+        small: avatarUrl,
+        medium: avatarUrl,
+        large: avatarUrl,
+      }
+    }
+
+    const [, bucketAndPath] = urlParts
+    const pathParts = bucketAndPath.split('/')
+    const bucket = pathParts[0]
+    const filePath = pathParts.slice(1).join('/')
+
+    // Remove any existing transform parameters
+    const cleanFilePath = filePath.split('?')[0]
+
+    return {
+      thumbnail: getOptimizedImageUrl(this.client, bucket, cleanFilePath, AVATAR_SIZES.thumbnail),
+      small: getOptimizedImageUrl(this.client, bucket, cleanFilePath, AVATAR_SIZES.small),
+      medium: getOptimizedImageUrl(this.client, bucket, cleanFilePath, AVATAR_SIZES.medium),
+      large: getOptimizedImageUrl(this.client, bucket, cleanFilePath, AVATAR_SIZES.large),
     }
   }
 }
