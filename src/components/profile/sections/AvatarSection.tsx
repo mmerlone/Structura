@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from 'react'
 
 import { useAuthContext } from '@/components/providers'
 import { useProfile } from '@/hooks/useProfile'
+import { logger } from '@/lib/logger/client'
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
 const VALID_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
@@ -24,26 +25,26 @@ export function AvatarSection(): JSX.Element {
       if (!file) return
 
       if (!VALID_FILE_TYPES.includes(file.type)) {
-        console.warn('Invalid file type for avatar upload:', file.type)
+        logger.warn({ fileType: file.type }, 'Invalid file type for avatar upload')
         return
       }
 
       if (file.size > MAX_FILE_SIZE) {
-        console.warn('File size too large for avatar upload:', file.size)
+        logger.warn({ fileSize: file.size }, 'File size too large for avatar upload')
         return
       }
 
       try {
         setIsUploading(true)
-        console.log('Starting avatar upload:', { fileName: file.name, fileSize: file.size })
+        logger.info({ fileName: file.name, fileSize: file.size }, 'Starting avatar upload')
 
         const uploadedUrl = await uploadAvatar(file)
         if (uploadedUrl) {
           await updateProfile({ avatar_url: uploadedUrl })
-          console.log('Avatar upload completed successfully:', { uploadedUrl })
+          logger.info({ uploadedUrl }, 'Avatar upload completed successfully')
         }
       } catch (error) {
-        console.error('Failed to update avatar:', error)
+        logger.error({ error }, 'Failed to update avatar')
       } finally {
         setIsUploading(false)
         // Reset the file input
@@ -62,11 +63,11 @@ export function AvatarSection(): JSX.Element {
 
       try {
         setIsUploading(true)
-        console.log('Starting avatar removal')
+        logger.info({}, 'Starting avatar removal')
         await updateProfile({ avatar_url: null })
-        console.log('Avatar removal completed successfully')
+        logger.info({}, 'Avatar removal completed successfully')
       } catch (error) {
-        console.error('Failed to remove avatar:', error)
+        logger.error({ error }, 'Failed to remove avatar')
       } finally {
         setIsUploading(false)
       }

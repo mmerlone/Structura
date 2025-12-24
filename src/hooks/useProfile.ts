@@ -5,6 +5,7 @@ import { useCallback } from 'react'
 
 import { ErrorCodes } from '@/lib/error/codes'
 import { BusinessError } from '@/lib/error/errors'
+import { logger } from '@/lib/logger/client'
 import { ProfileClientService } from '@/lib/supabase/services/database/profiles/profile.client'
 import type { Profile } from '@/types/database'
 import { ThemePreference } from '@/types/theme.types'
@@ -100,11 +101,13 @@ export function useProfile(userId?: string, initialData?: Profile | null) {
           ...(error instanceof Error ? { stack: error.stack } : {}),
         }
 
-        console.error('Profile fetch error:', {
-          error,
-          context: errorContext,
-          message: 'Failed to load profile',
-        })
+        logger.error(
+          {
+            error,
+            ...errorContext,
+          },
+          'Failed to load profile'
+        )
 
         throw error
       }
@@ -177,11 +180,13 @@ export function useProfile(userId?: string, initialData?: Profile | null) {
           : {}),
       }
 
-      console.error('Profile update error:', {
-        error,
-        context: errorContext,
-        message: 'Profile update failed',
-      })
+      logger.error(
+        {
+          error,
+          ...errorContext,
+        },
+        'Profile update failed'
+      )
 
       if (context?.previousProfile) {
         queryClient.setQueryData([PROFILE_QUERY_KEY, userId], context.previousProfile)
@@ -219,14 +224,14 @@ export function useProfile(userId?: string, initialData?: Profile | null) {
       })
     },
     onError: (error) => {
-      console.error('Avatar upload error:', {
-        error,
-        context: {
+      logger.error(
+        {
+          error,
           userId,
           operation: 'uploadAvatar',
         },
-        message: 'Avatar upload failed',
-      })
+        'Avatar upload failed'
+      )
     },
     onSettled: () => {
       // Invalidate queries to trigger refetch, but use refetchType: 'active' to only refetch active queries
@@ -251,7 +256,7 @@ export function useProfile(userId?: string, initialData?: Profile | null) {
       try {
         await updateProfile({ theme })
       } catch (error) {
-        console.error('Failed to update theme preference:', { error, userId, theme })
+        logger.error({ error, userId, theme }, 'Failed to update theme preference')
         throw error
       }
     },
