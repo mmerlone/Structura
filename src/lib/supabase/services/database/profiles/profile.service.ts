@@ -1,8 +1,17 @@
 import { BaseService } from '../../base.service'
 import { convertAppProfileForInsert, convertAppProfileForUpdate, convertDbProfile } from '@/lib/utils/profile-utils'
+import { validateAndSanitizeFile } from '@/lib/security/sanitize'
+import { SECURITY_CONFIG } from '@/config/security'
 import type { Profile, ProfileUpdate } from '@/types/profile.types'
 
 const PROFILE_BUCKET = 'avatars'
+
+// Avatar validation constraints
+const AVATAR_VALIDATION = {
+  maxSize: 5 * 1024 * 1024, // 5MB
+  allowedTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'],
+  allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
+} as const
 
 /**
  * Abstract base profile service with shared business logic
@@ -86,11 +95,27 @@ export abstract class ProfileService extends BaseService {
   async uploadAvatar(userId: string, file: File): Promise<string> {
     try {
       this.logger.debug({ userId, fileName: file.name }, 'Uploading avatar')
+
+      // Server-side validation
+      const validation = validateAndSanitizeFile(file, AVATAR_VALIDATION)
+      
+      if (!validation.isValid) {
+        this.logger.warn(
+          { userId, fileName: file.name, error: validation.error },
+          'Avatar validation failed'
+        )
+        throw new Error(validation.error || 'Invalid file')
+      }
+
       const fileExt = file.name.split('.').pop()
-      const fileName = `${userId}-${Date.now()}.${fileExt}`
+      const fileName = validation.sanitizedName || `${userId}-${Date.now()}.${fileExt}`
       const filePath = `${userId}/${fileName}`
 
-      const { error: uploadError } = await this.client.storage.from(PROFILE_BUCKET).upload(filePath, file)
+      // Upload file to storage
+      const { error: uploadError } = await this.client.storage.from(PROFILE_BUCKET).upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false, // Don't overwrite existing files
+      })
 
       if (uploadError) throw uploadError
 
@@ -98,8 +123,16 @@ export abstract class ProfileService extends BaseService {
         data: { publicUrl },
       } = this.client.storage.from(PROFILE_BUCKET).getPublicUrl(filePath)
 
-      // Update profile with new avatar URL
-      await this.updateProfile(userId, { avatar_url: publicUrl })
+      // Transaction-like behavior: Update profile with new avatar URL
+      // If this fails, the uploaded file remains in storage (orphaned)
+      // Consider implementing cleanup job for orphaned files
+      try {
+        await this.updateProfile(userId, { avatar_url: publicUrl })
+      } catch (updateError) {
+        // Attempt to clean up uploaded file on profile update failure
+        await this.client.storage.from(PROFILE_BUCKET).remove([filePath])
+        throw updateError
+      }
 
       this.logger.info({ userId, publicUrl }, 'Avatar uploaded successfully')
       return publicUrl

@@ -1,8 +1,9 @@
 'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback } from 'react'
+import { useCallback, useRef, useEffect } from 'react'
 
+import { QUERY_CONFIG, QUERY_KEYS } from '@/config/query'
 import { ErrorCodes } from '@/lib/error/codes'
 import { BusinessError } from '@/lib/error/errors'
 import { logger } from '@/lib/logger/client'
@@ -80,6 +81,17 @@ const PROFILE_QUERY_KEY = 'profile'
  */
 export function useProfile(userId?: string, initialData?: Profile | null) {
   const queryClient = useQueryClient()
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      // Abort any pending requests when component unmounts
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [])
 
   const {
     data: profile,
@@ -87,7 +99,7 @@ export function useProfile(userId?: string, initialData?: Profile | null) {
     error,
     refetch,
   } = useQuery<Profile | null>({
-    queryKey: [PROFILE_QUERY_KEY, userId],
+    queryKey: QUERY_KEYS.profile(userId),
     initialData: initialData || undefined,
     queryFn: async () => {
       if (userId === null || userId === undefined) return null
@@ -113,8 +125,8 @@ export function useProfile(userId?: string, initialData?: Profile | null) {
       }
     },
     enabled: userId !== null && userId !== undefined,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    staleTime: QUERY_CONFIG.profile.staleTime,
+    gcTime: QUERY_CONFIG.profile.gcTime,
     refetchOnWindowFocus: false, // Prevent refetch on window focus to avoid unnecessary reloads
     refetchOnMount: false, // Only refetch if data is stale
     retry: (failureCount, error) => {
@@ -122,11 +134,11 @@ export function useProfile(userId?: string, initialData?: Profile | null) {
         error instanceof BusinessError &&
         error.statusCode !== null &&
         error.statusCode !== undefined &&
-        [403, 404].includes(error.statusCode)
+        QUERY_CONFIG.retry.nonRetryableStatusCodes.includes(error.statusCode)
       ) {
         return false
       }
-      return failureCount < 3
+      return failureCount < QUERY_CONFIG.retry.maxAttempts
     },
   })
 
@@ -154,12 +166,12 @@ export function useProfile(userId?: string, initialData?: Profile | null) {
     onMutate: async (updates) => {
       if (userId === null || userId === undefined) return
 
-      await queryClient.cancelQueries({ queryKey: [PROFILE_QUERY_KEY, userId] })
+      await queryClient.cancelQueries({ queryKey: QUERY_KEYS.profile(userId) })
 
-      const previousProfile = queryClient.getQueryData<Profile | null>([PROFILE_QUERY_KEY, userId])
+      const previousProfile = queryClient.getQueryData<Profile | null>(QUERY_KEYS.profile(userId))
 
       if (previousProfile) {
-        queryClient.setQueryData([PROFILE_QUERY_KEY, userId], {
+        queryClient.setQueryData(QUERY_KEYS.profile(userId), {
           ...previousProfile,
           ...updates,
         })
@@ -189,14 +201,14 @@ export function useProfile(userId?: string, initialData?: Profile | null) {
       )
 
       if (context?.previousProfile) {
-        queryClient.setQueryData([PROFILE_QUERY_KEY, userId], context.previousProfile)
+        queryClient.setQueryData(QUERY_KEYS.profile(userId), context.previousProfile)
       }
     },
     onSettled: () => {
       // Invalidate queries to trigger refetch, but use refetchType: 'active' to only refetch active queries
       // This prevents unnecessary refetches that could cause component remounts
       queryClient.invalidateQueries({
-        queryKey: [PROFILE_QUERY_KEY, userId],
+        queryKey: QUERY_KEYS.profile(userId),
         refetchType: 'active', // Only refetch if the query is currently being used
       })
     },
@@ -213,11 +225,21 @@ export function useProfile(userId?: string, initialData?: Profile | null) {
           context: { operation: 'uploadAvatar' },
         })
       }
-      const service = new ProfileClientService()
-      return await service.uploadAvatar(userId, file)
+
+      // Create new AbortController for this operation
+      abortControllerRef.current = new AbortController()
+
+      try {
+        const service = new ProfileClientService()
+        const result = await service.uploadAvatar(userId, file)
+        return result
+      } finally {
+        // Clear the abort controller after operation completes
+        abortControllerRef.current = null
+      }
     },
     onSuccess: (avatarUrl) => {
-      queryClient.setQueryData([PROFILE_QUERY_KEY, userId], (old: Profile | null) => {
+      queryClient.setQueryData(QUERY_KEYS.profile(userId), (old: Profile | null) => {
         if (!old) return old
         // Use Object.assign for single property update (more efficient than spread)
         return Object.assign({}, old, { avatar_url: avatarUrl })
@@ -236,7 +258,7 @@ export function useProfile(userId?: string, initialData?: Profile | null) {
     onSettled: () => {
       // Invalidate queries to trigger refetch, but use refetchType: 'active' to only refetch active queries
       queryClient.invalidateQueries({
-        queryKey: [PROFILE_QUERY_KEY, userId],
+        queryKey: QUERY_KEYS.profile(userId),
         refetchType: 'active',
       })
     },

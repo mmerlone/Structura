@@ -5,12 +5,67 @@ import { getCountryByCode } from '@/lib/utils/location-utils'
 
 const logger = buildLogger('location-actions')
 
+// In-memory cache for geolocation results
+// In production, consider using Redis or Vercel KV for persistent caching
+const geoLocationCache = new Map<string, { country: string; timestamp: number }>()
+const CACHE_TTL = 24 * 60 * 60 * 1000 // 24 hours
+const MAX_CACHE_SIZE = 1000 // Prevent unbounded memory growth
+
+/**
+ * Get country from cache if available and not expired
+ */
+function getCachedCountry(cacheKey: string): string | null {
+  const cached = geoLocationCache.get(cacheKey)
+  
+  if (!cached) return null
+  
+  // Check if cache entry is expired
+  if (Date.now() - cached.timestamp > CACHE_TTL) {
+    geoLocationCache.delete(cacheKey)
+    return null
+  }
+  
+  return cached.country
+}
+
+/**
+ * Store country in cache with LRU eviction
+ */
+function cacheCountry(cacheKey: string, country: string): void {
+  // Simple LRU: if cache is full, remove oldest entry
+  if (geoLocationCache.size >= MAX_CACHE_SIZE) {
+    const firstKey = geoLocationCache.keys().next().value
+    if (firstKey) {
+      geoLocationCache.delete(firstKey)
+    }
+  }
+  
+  geoLocationCache.set(cacheKey, {
+    country,
+    timestamp: Date.now(),
+  })
+}
+
 /**
  * Server Action to detect the user's country using IP geolocation.
  * Replaces the legacy /api/location/country API route.
+ * 
+ * Implements caching to prevent API quota exhaustion:
+ * - Results cached for 24 hours per IP
+ * - Maximum 1000 cached entries (LRU eviction)
  */
-export async function detectCountry(): Promise<string | null> {
+export async function detectCountry(ipAddress?: string): Promise<string | null> {
   try {
+    // Generate cache key (use provided IP or 'auto-detect' for auto-detection)
+    const cacheKey = ipAddress || 'auto-detect'
+    
+    // Check cache first
+    const cachedCountry = getCachedCountry(cacheKey)
+    if (cachedCountry) {
+      logger.debug({ cacheKey }, 'Returning cached country')
+      return cachedCountry
+    }
+
     // Get API key from server-side environment variable
     const apiKey = process.env.IPGEOLOCATION_API_KEY
     if (apiKey === null || apiKey === undefined) {
@@ -18,10 +73,15 @@ export async function detectCountry(): Promise<string | null> {
       return null
     }
 
-    logger.debug({}, 'Fetching country using IP geolocation API (Server Action)')
+    logger.debug({ ipAddress }, 'Fetching country using IP geolocation API (Server Action)')
 
-    // Call IP geolocation API without IP parameter to auto-detect client IP
-    const response = await fetch(`https://api.ipgeolocation.io/v2/ipgeo?fields=location&apiKey=${apiKey}`, {
+    // Build API URL with optional IP parameter
+    const apiUrl = ipAddress
+      ? `https://api.ipgeolocation.io/v2/ipgeo?fields=location&apiKey=${apiKey}&ip=${ipAddress}`
+      : `https://api.ipgeolocation.io/v2/ipgeo?fields=location&apiKey=${apiKey}`
+
+    // Call IP geolocation API
+    const response = await fetch(apiUrl, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -66,9 +126,13 @@ export async function detectCountry(): Promise<string | null> {
       {
         countryCode,
         countryName: country.name,
+        cached: false,
       },
       'Successfully detected country from IP geolocation (Server Action)'
     )
+
+    // Cache the result
+    cacheCountry(cacheKey, country.isoCode)
 
     return country.isoCode
   } catch (error) {
